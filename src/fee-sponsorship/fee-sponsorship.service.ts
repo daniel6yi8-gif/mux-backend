@@ -109,7 +109,9 @@ export class FeeSponsorshipService {
     this.validateCreateDto(dto);
 
     // Check for existing active budget for this wallet+network
-    const existing = await this.findActiveBudget(dto.walletId, network);
+    const existing = await this.withPrismaErrors('create', correlationId, () =>
+      this.findActiveBudget(dto.walletId, network),
+    );
     if (existing) {
       throw new ConflictException({
         code: FeeSponsorshipErrorCode.BUDGET_ALREADY_EXISTS,
@@ -118,8 +120,8 @@ export class FeeSponsorshipService {
       });
     }
 
-    try {
-      const budget = await this.prisma.feeSponsorshipBudget.create({
+    const budget = await this.withPrismaErrors('create', correlationId, () =>
+      this.prisma.feeSponsorshipBudget.create({
         data: {
           walletId: dto.walletId,
           sponsorId: dto.sponsorId,
@@ -131,27 +133,15 @@ export class FeeSponsorshipService {
           status: FeeSponsorshipBudgetStatus.ACTIVE,
           note: dto.note ?? null,
         },
-      });
+      }),
+    );
 
-      this.metrics.incrementCounter('fee_sponsorship.budget_created', 1);
-      this.logger.log(
-        `fee.sponsorship.create budget=${budget.id} wallet=${dto.walletId} sponsor=${this.redactSponsorId(dto.sponsorId)} network=${network} correlationId=${correlationId}`,
-      );
+    this.metrics.incrementCounter('fee_sponsorship.budget_created', 1);
+    this.logger.log(
+      `fee.sponsorship.create budget=${budget.id} wallet=${dto.walletId} sponsor=${this.redactSponsorId(dto.sponsorId)} network=${network} correlationId=${correlationId}`,
+    );
 
-      return this.toDomainModel(budget);
-    } catch (err) {
-      if (this.isDependencyError(err)) {
-        this.logger.error(
-          `fee.sponsorship.create dependency failure wallet=${dto.walletId} correlationId=${correlationId}`,
-        );
-        throw new ServiceUnavailableException({
-          code: FeeSponsorshipErrorCode.DEPENDENCY_UNAVAILABLE,
-          message: 'Fee sponsorship store unavailable; write rejected',
-          correlationId,
-        });
-      }
-      throw err;
-    }
+    return this.toDomainModel(budget);
   }
 
   /**
@@ -170,9 +160,11 @@ export class FeeSponsorshipService {
   ): Promise<FeeSponsorshipBudget> {
     const correlationId = actor.correlationId ?? randomUUID();
 
-    const existing = await this.prisma.feeSponsorshipBudget.findUnique({
-      where: { id: budgetId },
-    });
+    const existing = await this.withPrismaErrors('update', correlationId, () =>
+      this.prisma.feeSponsorshipBudget.findUnique({
+        where: { id: budgetId },
+      }),
+    );
 
     if (!existing) {
       throw new NotFoundException({
@@ -207,8 +199,8 @@ export class FeeSponsorshipService {
       }
     }
 
-    try {
-      const updated = await this.prisma.feeSponsorshipBudget.update({
+    const updated = await this.withPrismaErrors('update', correlationId, () =>
+      this.prisma.feeSponsorshipBudget.update({
         where: { id: budgetId },
         data: {
           ...(dto.limitAmount !== undefined && {
@@ -220,27 +212,15 @@ export class FeeSponsorshipService {
           ...(dto.status !== undefined && { status: dto.status }),
           ...(dto.note !== undefined && { note: dto.note }),
         },
-      });
+      }),
+    );
 
-      this.metrics.incrementCounter('fee_sponsorship.budget_updated', 1);
-      this.logger.log(
-        `fee.sponsorship.update budget=${budgetId} wallet=${existing.walletId} correlationId=${correlationId}`,
-      );
+    this.metrics.incrementCounter('fee_sponsorship.budget_updated', 1);
+    this.logger.log(
+      `fee.sponsorship.update budget=${budgetId} wallet=${existing.walletId} correlationId=${correlationId}`,
+    );
 
-      return this.toDomainModel(updated);
-    } catch (err) {
-      if (this.isDependencyError(err)) {
-        this.logger.error(
-          `fee.sponsorship.update dependency failure budget=${budgetId} correlationId=${correlationId}`,
-        );
-        throw new ServiceUnavailableException({
-          code: FeeSponsorshipErrorCode.DEPENDENCY_UNAVAILABLE,
-          message: 'Fee sponsorship store unavailable; write rejected',
-          correlationId,
-        });
-      }
-      throw err;
-    }
+    return this.toDomainModel(updated);
   }
 
   /**
@@ -252,9 +232,11 @@ export class FeeSponsorshipService {
   ): Promise<FeeSponsorshipBudget> {
     const correlationId = actor.correlationId ?? randomUUID();
 
-    const budget = await this.prisma.feeSponsorshipBudget.findUnique({
-      where: { id: budgetId },
-    });
+    const budget = await this.withPrismaErrors('get', correlationId, () =>
+      this.prisma.feeSponsorshipBudget.findUnique({
+        where: { id: budgetId },
+      }),
+    );
 
     if (!budget) {
       throw new NotFoundException({
@@ -283,30 +265,18 @@ export class FeeSponsorshipService {
     // Authz: deny-by-default
     this.enforceAuthorization(walletId, actor, correlationId);
 
-    try {
-      const budgets = await this.prisma.feeSponsorshipBudget.findMany({
+    const budgets = await this.withPrismaErrors('list', correlationId, () =>
+      this.prisma.feeSponsorshipBudget.findMany({
         where: {
           walletId,
           ...(network ? { network } : {}),
           deletedAt: null,
         },
         orderBy: { createdAt: 'desc' },
-      });
+      }),
+    );
 
-      return budgets.map((b) => this.toDomainModel(b));
-    } catch (err) {
-      if (this.isDependencyError(err)) {
-        this.logger.error(
-          `fee.sponsorship.list dependency failure wallet=${walletId} correlationId=${correlationId}`,
-        );
-        throw new ServiceUnavailableException({
-          code: FeeSponsorshipErrorCode.DEPENDENCY_UNAVAILABLE,
-          message: 'Fee sponsorship store unavailable; read rejected',
-          correlationId,
-        });
-      }
-      throw err;
-    }
+    return budgets.map((b) => this.toDomainModel(b));
   }
 
   /**
@@ -319,9 +289,11 @@ export class FeeSponsorshipService {
   ): Promise<FeeSponsorshipBudget> {
     const correlationId = actor.correlationId ?? randomUUID();
 
-    const existing = await this.prisma.feeSponsorshipBudget.findUnique({
-      where: { id: budgetId },
-    });
+    const existing = await this.withPrismaErrors('close', correlationId, () =>
+      this.prisma.feeSponsorshipBudget.findUnique({
+        where: { id: budgetId },
+      }),
+    );
 
     if (!existing) {
       throw new NotFoundException({
@@ -339,34 +311,22 @@ export class FeeSponsorshipService {
       return this.toDomainModel(existing);
     }
 
-    try {
-      const updated = await this.prisma.feeSponsorshipBudget.update({
+    const updated = await this.withPrismaErrors('close', correlationId, () =>
+      this.prisma.feeSponsorshipBudget.update({
         where: { id: budgetId },
         data: {
           status: FeeSponsorshipBudgetStatus.CLOSED,
           remainingAmount: '0',
         },
-      });
+      }),
+    );
 
-      this.metrics.incrementCounter('fee_sponsorship.budget_closed', 1);
-      this.logger.log(
-        `fee.sponsorship.close budget=${budgetId} wallet=${existing.walletId} correlationId=${correlationId}`,
-      );
+    this.metrics.incrementCounter('fee_sponsorship.budget_closed', 1);
+    this.logger.log(
+      `fee.sponsorship.close budget=${budgetId} wallet=${existing.walletId} correlationId=${correlationId}`,
+    );
 
-      return this.toDomainModel(updated);
-    } catch (err) {
-      if (this.isDependencyError(err)) {
-        this.logger.error(
-          `fee.sponsorship.close dependency failure budget=${budgetId} correlationId=${correlationId}`,
-        );
-        throw new ServiceUnavailableException({
-          code: FeeSponsorshipErrorCode.DEPENDENCY_UNAVAILABLE,
-          message: 'Fee sponsorship store unavailable; write rejected',
-          correlationId,
-        });
-      }
-      throw err;
-    }
+    return this.toDomainModel(updated);
   }
 
   /**
@@ -478,6 +438,53 @@ export class FeeSponsorshipService {
       return '***';
     }
     return `${sponsorId.slice(0, 6)}…${sponsorId.slice(-4)}`;
+  }
+
+  /**
+   * Run a Prisma call and map its failures to stable fee sponsorship errors:
+   * - P2002 (unique violation) -> 409 BUDGET_ALREADY_EXISTS
+   * - P2025 (record not found) -> 404 BUDGET_NOT_FOUND
+   * - connectivity/timeout     -> 503 DEPENDENCY_UNAVAILABLE (fail closed)
+   * Anything else is rethrown unchanged. Raw Prisma messages and connection
+   * details are never copied into the exception or the log line.
+   */
+  private async withPrismaErrors<T>(
+    operation: string,
+    correlationId: string,
+    query: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await query();
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError) {
+        if (err.code === 'P2002') {
+          throw new ConflictException({
+            code: FeeSponsorshipErrorCode.BUDGET_ALREADY_EXISTS,
+            message:
+              'A fee sponsorship budget with these attributes already exists',
+            correlationId,
+          });
+        }
+        if (err.code === 'P2025') {
+          throw new NotFoundException({
+            code: FeeSponsorshipErrorCode.BUDGET_NOT_FOUND,
+            message: 'Fee sponsorship budget not found',
+            correlationId,
+          });
+        }
+      }
+      if (this.isDependencyError(err)) {
+        this.logger.error(
+          `fee.sponsorship.${operation} dependency failure correlationId=${correlationId}`,
+        );
+        throw new ServiceUnavailableException({
+          code: FeeSponsorshipErrorCode.DEPENDENCY_UNAVAILABLE,
+          message: 'Fee sponsorship store unavailable; request rejected',
+          correlationId,
+        });
+      }
+      throw err;
+    }
   }
 
   /**
