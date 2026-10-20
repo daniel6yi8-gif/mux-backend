@@ -102,8 +102,8 @@ export class FeeSponsorshipService {
       });
     }
 
-    // Authz: deny-by-default
-    this.enforceAuthorization(dto.walletId, actor, correlationId);
+    // Authz: deny-by-default; the body sponsorId must be the authenticated actor
+    this.enforceAuthorization(dto.walletId, actor, correlationId, dto.sponsorId);
 
     // Validate input
     this.validateCreateDto(dto);
@@ -183,7 +183,12 @@ export class FeeSponsorshipService {
     }
 
     // Authz: deny-by-default
-    this.enforceAuthorization(existing.walletId, actor, correlationId);
+    this.enforceAuthorization(
+      existing.walletId,
+      actor,
+      correlationId,
+      existing.sponsorId,
+    );
 
     // Only ACTIVE budgets can be updated
     if (existing.status === FeeSponsorshipBudgetStatus.CLOSED) {
@@ -265,7 +270,12 @@ export class FeeSponsorshipService {
     }
 
     // Authz: deny-by-default
-    this.enforceAuthorization(budget.walletId, actor, correlationId);
+    this.enforceAuthorization(
+      budget.walletId,
+      actor,
+      correlationId,
+      budget.sponsorId,
+    );
 
     return this.toDomainModel(budget);
   }
@@ -332,7 +342,12 @@ export class FeeSponsorshipService {
     }
 
     // Authz: deny-by-default
-    this.enforceAuthorization(existing.walletId, actor, correlationId);
+    this.enforceAuthorization(
+      existing.walletId,
+      actor,
+      correlationId,
+      existing.sponsorId,
+    );
 
     if (existing.status === FeeSponsorshipBudgetStatus.CLOSED) {
       // Idempotent: closing an already-closed budget is a no-op success.
@@ -373,18 +388,25 @@ export class FeeSponsorshipService {
    * Authorize the actor for the given wallet.
    * Deny-by-default: only the wallet owner or an authorized
    * delegate/guardian may manage fee sponsorship budgets.
+   *
+   * When `sponsorId` is given (the budget's sponsor), the authenticated
+   * actor must be that sponsor. The actor is never taken from the request body.
    */
   private enforceAuthorization(
     walletId: string,
     actor: SponsorshipActor,
     correlationId: string,
+    sponsorId?: string,
   ): void {
     // Owner is always authorized
     // In a full implementation, we would check the wallet ownership
     // against the actor's subjectId. For now, we enforce role-based auth.
     const allowedRoles = ['owner', 'delegate', 'guardian'];
 
-    if (!allowedRoles.includes(actor.role)) {
+    if (
+      !allowedRoles.includes(actor.role) ||
+      (sponsorId !== undefined && sponsorId !== actor.subjectId)
+    ) {
       this.logger.warn(
         `fee.sponsorship.authz denied wallet=${walletId} role=${actor.role} correlationId=${correlationId}`,
       );
