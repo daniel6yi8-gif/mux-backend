@@ -19,6 +19,7 @@ import {
 } from './domain/fee-sponsorship-budget.model';
 import { CreateFeeSponsorshipBudgetDto } from './dto/create-fee-sponsorship-budget.dto';
 import { UpdateFeeSponsorshipBudgetDto } from './dto/update-fee-sponsorship-budget.dto';
+import { isPositiveStroopsString } from './dto/is-positive-stroops-string.decorator';
 import { FeeSponsorshipErrorCode } from './fee-sponsorship-error-codes';
 import { SponsorshipActor } from './domain/fee-sponsorship-budget.model';
 import { randomUUID } from 'crypto';
@@ -193,6 +194,9 @@ export class FeeSponsorshipService {
         correlationId,
       });
     }
+
+    // Validate amount fields before any comparison or write
+    this.validateUpdateDto(dto);
 
     // Validate remainingAmount if provided
     if (dto.remainingAmount !== undefined) {
@@ -422,11 +426,29 @@ export class FeeSponsorshipService {
       });
     }
 
-    const limit = parseFloat(dto.limitAmount);
-    if (isNaN(limit) || limit <= 0) {
+    if (!isPositiveStroopsString(dto.limitAmount)) {
       throw new BadRequestException({
         code: FeeSponsorshipErrorCode.INVALID_INPUT,
-        message: 'limitAmount must be a positive numeric string',
+        message: 'limitAmount must be a positive integer string in stroops',
+      });
+    }
+  }
+
+  /**
+   * Validate the amount fields of the update DTO when provided.
+   */
+  private validateUpdateDto(dto: UpdateFeeSponsorshipBudgetDto): void {
+    if (dto.limitAmount !== undefined && !isPositiveStroopsString(dto.limitAmount)) {
+      throw new BadRequestException({
+        code: FeeSponsorshipErrorCode.INVALID_INPUT,
+        message: 'limitAmount must be a positive integer string in stroops',
+      });
+    }
+
+    if (dto.remainingAmount !== undefined && !isPositiveStroopsString(dto.remainingAmount)) {
+      throw new BadRequestException({
+        code: FeeSponsorshipErrorCode.INVALID_INPUT,
+        message: 'remainingAmount must be a positive integer string in stroops',
       });
     }
   }
