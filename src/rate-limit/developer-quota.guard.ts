@@ -51,6 +51,19 @@ export class DeveloperQuotaGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest<QuotaRequest>();
     const developerId = this.resolveDeveloperId(request);
+
+    // Refuse before counting: an empty id would otherwise share one bucket
+    // across every unattributed request and occupy a tracked-window slot.
+    if (developerId.length === 0) {
+      throw new HttpException(
+        {
+          errorCode: DeveloperQuotaErrorCode.UNATTRIBUTED_REQUEST,
+          message: 'Request is not attributed to a developer.',
+        },
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+
     const decision = this.rateLimitService.consume(developerId);
 
     if (decision.allowed) {

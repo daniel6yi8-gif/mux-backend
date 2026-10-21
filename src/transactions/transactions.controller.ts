@@ -6,8 +6,11 @@ import {
   Patch,
   Param,
   Query,
+  Req,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { TransactionsService } from './transactions.service';
 import { StellarTransactionBuildService } from './stellar-transaction-build.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
@@ -40,8 +43,25 @@ export class TransactionsController {
 
   @Post()
   @SensitiveEndpoint()
-  create(@Body() createTransactionDto: CreateTransactionDto) {
-    return this.transactionsService.create(createTransactionDto);
+  create(
+    @Body() createTransactionDto: CreateTransactionDto,
+    @Req() req: Request,
+  ) {
+    // Resolve the developer from the authenticated API key, never the body, so
+    // a caller cannot spend from another developer's wallet.
+    const callerDeveloperId: string | undefined = (req as any).apiKeyContext
+      ?.developer?.id;
+
+    if (!callerDeveloperId) {
+      throw new UnauthorizedException(
+        'Unable to resolve developer from API key context',
+      );
+    }
+
+    return this.transactionsService.create(
+      createTransactionDto,
+      callerDeveloperId,
+    );
   }
 
   /**

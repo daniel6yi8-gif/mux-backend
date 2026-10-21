@@ -37,6 +37,8 @@ import { MetricsService } from '../common/metrics/metrics.service';
 export const DeveloperQuotaErrorCode = {
   /** The developer exceeded their quota for the current window. */
   EXCEEDED: 'DEVELOPER_QUOTA_EXCEEDED',
+  /** The request has no server-resolved developer, so it cannot be accounted. */
+  UNATTRIBUTED_REQUEST: 'DEVELOPER_QUOTA_UNATTRIBUTED_REQUEST',
   /** Cleanup could not reach the database. */
   CLEANUP_DEPENDENCY_UNAVAILABLE: 'DEVELOPER_QUOTA_CLEANUP_UNAVAILABLE',
   /** The configured batch size or window was invalid. */
@@ -74,6 +76,15 @@ export const DEFAULT_QUOTA_CLEANUP_BATCH_SIZE = 1000;
 
 /** Upper bound on rows deleted per cleanup pass. */
 export const MAX_QUOTA_CLEANUP_BATCH_SIZE = 10_000;
+
+/** Default cleanup polling interval, in ms (1 h). */
+export const DEFAULT_QUOTA_CLEANUP_INTERVAL_MS = 3_600_000;
+
+/** Lower bound on the cleanup polling interval, in ms. Prevents a hot loop. */
+export const MIN_QUOTA_CLEANUP_INTERVAL_MS = 60_000;
+
+/** Upper bound on the cleanup polling interval, in ms (24 h). */
+export const MAX_QUOTA_CLEANUP_INTERVAL_MS = 86_400_000;
 
 /** DI token for {@link RateLimitRecordStore}. */
 export const RATE_LIMIT_RECORD_STORE = Symbol('RATE_LIMIT_RECORD_STORE');
@@ -173,6 +184,27 @@ export function resolveDeveloperQuotaConfig(
       1,
     ),
   };
+}
+
+/**
+ * Resolves the cleanup polling interval, clamped to
+ * `[MIN_QUOTA_CLEANUP_INTERVAL_MS, MAX_QUOTA_CLEANUP_INTERVAL_MS]`.
+ *
+ * A missing, empty, or non-integer value falls back to the default. An integer
+ * outside the bounds is clamped, so `0` or a negative value cannot turn the
+ * worker into a hot loop and an oversized value cannot stall cleanup forever.
+ */
+export function resolveCleanupIntervalMs(raw: unknown): number {
+  if (raw === undefined || raw === null || raw === '') {
+    return DEFAULT_QUOTA_CLEANUP_INTERVAL_MS;
+  }
+  return Math.min(
+    Math.max(
+      toInt(raw, DEFAULT_QUOTA_CLEANUP_INTERVAL_MS),
+      MIN_QUOTA_CLEANUP_INTERVAL_MS,
+    ),
+    MAX_QUOTA_CLEANUP_INTERVAL_MS,
+  );
 }
 
 /**

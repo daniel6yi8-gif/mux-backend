@@ -9,6 +9,7 @@ import {
   DEFAULT_DEVELOPER_QUOTA_WINDOW_MS,
   DEFAULT_QUOTA_CLEANUP_BATCH_SIZE,
   RateLimitService,
+  resolveCleanupIntervalMs,
 } from './rate-limit.service';
 
 /**
@@ -24,7 +25,8 @@ import {
  *   RATE_LIMIT_CLEANUP_ENABLED          — set to "true" to run in-process
  *                                         (default: "false" / disabled)
  *   RATE_LIMIT_CLEANUP_INTERVAL_MS      — polling interval in ms
- *                                         (default: 3_600_000 / 1 h)
+ *                                         (default: 3_600_000 / 1 h,
+ *                                         clamped to 60_000–86_400_000)
  *   RATE_LIMIT_CLEANUP_BATCH_SIZE       — rows deleted per pass
  *                                         (default: 1000, clamped to 10000)
  *
@@ -59,10 +61,19 @@ export class RateLimitCleanupWorker implements OnModuleInit, OnModuleDestroy {
       String(
         this.configService.get<string>('RATE_LIMIT_CLEANUP_ENABLED', 'false'),
       ).toLowerCase() === 'true';
-    this.intervalMs = this.configService.get<number>(
+    const rawIntervalMs = this.configService.get<unknown>(
       'RATE_LIMIT_CLEANUP_INTERVAL_MS',
-      3_600_000,
     );
+    this.intervalMs = resolveCleanupIntervalMs(rawIntervalMs);
+    if (
+      rawIntervalMs !== undefined &&
+      Number(rawIntervalMs) !== this.intervalMs
+    ) {
+      this.logger.warn(
+        `RATE_LIMIT_CLEANUP_INTERVAL_MS=${String(rawIntervalMs)} is invalid ` +
+          `or out of range; using ${this.intervalMs}ms`,
+      );
+    }
     this.batchSize = this.configService.get<number>(
       'RATE_LIMIT_CLEANUP_BATCH_SIZE',
       DEFAULT_QUOTA_CLEANUP_BATCH_SIZE,
